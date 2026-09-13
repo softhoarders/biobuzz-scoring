@@ -128,13 +128,21 @@ function scoreMatch(m) {
   const red = scoreAlliance(m.red, m.blue, m.flowers, 'red', th);
   const blue = scoreAlliance(m.blue, m.red, m.flowers, 'blue', th);
 
-  let outcome = 'tie';
-  if (red.total > blue.total) outcome = 'red';
+  // A DQ is a forfeit, so it decides the result before any comparison of points:
+  // otherwise a DQ'd alliance forced to 0 "ties" an opponent who also scored 0.
+  let outcome;
+  if (m.red.dq && m.blue.dq) outcome = 'tie';
+  else if (m.red.dq) outcome = 'blue';
+  else if (m.blue.dq) outcome = 'red';
+  else if (red.total > blue.total) outcome = 'red';
   else if (blue.total > red.total) outcome = 'blue';
+  else outcome = 'tie';
 
   for (const [side, s] of [['red', red], ['blue', blue]]) {
-    s.resultRP = outcome === 'tie' ? RP.tie : (outcome === side ? RP.win : RP.loss);
     const dq = side === 'red' ? m.red.dq : m.blue.dq;
+    // A DQ'd alliance earns no RP at all, so its result component is 0 too —
+    // showing "Tie +1" beside a total of 0 RP contradicts the rules tab.
+    s.resultRP = dq ? 0 : (outcome === 'tie' ? RP.tie : (outcome === side ? RP.win : RP.loss));
     s.rp = dq ? 0 : s.resultRP + (s.swarmRP ? 1 : 0) + (s.poll1RP ? 1 : 0) + (s.poll2RP ? 1 : 0);
   }
   return { red, blue, outcome };
@@ -216,7 +224,9 @@ function renderAlliance(color) {
       ${chip(s.swarmRP, 'SWARM', `${s.swarmPts}/${th.swarm}`)}
       ${chip(s.poll1RP, 'POLLINATOR 1', `${s.tips}/${th.poll1}`)}
       ${chip(s.poll2RP, 'POLLINATOR 2', `${s.tips}/${th.poll2}`)}
-      ${chip(s.resultRP > 0, s.resultRP === RP.win ? 'Win' : (s.resultRP === RP.tie ? 'Tie' : 'Loss'), `+${s.resultRP}`)}
+      ${a.dq
+        ? chip(false, 'Disqualified', '+0')
+        : chip(s.resultRP > 0, s.resultRP === RP.win ? 'Win' : (s.resultRP === RP.tie ? 'Tie' : 'Loss'), `+${s.resultRP}`)}
     </div>
   </div>`;
 }
@@ -435,7 +445,11 @@ document.addEventListener('input', e => {
    VIEWS
    ============================================================ */
 function switchView(v) {
-  document.querySelectorAll('.tab').forEach(b => b.classList.toggle('is-active', b.dataset.view === v));
+  document.querySelectorAll('.tab').forEach(b => {
+    const on = b.dataset.view === v;
+    b.classList.toggle('is-active', on);
+    b.setAttribute('aria-selected', String(on));
+  });
   document.querySelectorAll('.view').forEach(s => s.classList.toggle('is-active', s.id === 'view-' + v));
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
@@ -455,6 +469,7 @@ function saveMatch() {
   state.label = '';
   $('#matchLabel').value = '';
   clearScores();
+  resetTimer();   // otherwise the next match is stuck in 'post' and Start does nothing
   switchView('history');
 }
 function loadMatch(i) {
@@ -463,6 +478,9 @@ function loadMatch(i) {
   state.red = JSON.parse(JSON.stringify(m.red));
   state.blue = JSON.parse(JSON.stringify(m.blue));
   state.flowers = JSON.parse(JSON.stringify(m.flowers));
+  // Score the loaded match under the thresholds it was saved with, so what the
+  // history row shows and what the match view shows cannot disagree.
+  if (m.thresholds) { state.thresholds = { ...DEFAULT_THRESHOLDS, ...m.thresholds }; saveConfig(); }
   state.label = m.label || '';
   $('#matchLabel').value = state.label;
   switchView('match');
@@ -514,6 +532,33 @@ function paintTimer() {
   else { hint.textContent = 'Locked until 1:00'; hint.dataset.live = '0'; }
 }
 
+/* Consume `dt` across phase boundaries. requestAnimationFrame is throttled while
+   the tab is backgrounded, so a single frame can span a boundary; spending the
+   remainder in the next phase keeps the clock honest instead of losing the overshoot. */
+function advance(dt) {
+  const T = state.timer;
+  for (let guard = 0; dt > 0 && T.running && guard < 8; guard++) {
+    if (T.phase === 'auto') {
+      const step = Math.min(dt, T.t - T_AUTO_END);
+      T.t -= step; dt -= step;
+      if (T.t > T_AUTO_END) return;
+      T.t = T_AUTO_END; T.phase = 'transition'; T.transitionLeft = TRANSITION; beep(3, 420);
+    } else if (T.phase === 'transition') {
+      const step = Math.min(dt, T.transitionLeft);
+      T.transitionLeft -= step; dt -= step;
+      if (T.transitionLeft > 0) return;
+      T.transitionLeft = 0; T.phase = 'teleop'; beep(3, 660);
+    } else if (T.phase === 'teleop') {
+      const prev = T.t;
+      T.t = Math.max(0, T.t - dt); dt = 0;
+      if (prev > T_FLOWER && T.t <= T_FLOWER) beep(2, 880);
+      if (prev > T_FINAL && T.t <= T_FINAL) beep(1, 990);
+      if (T.t <= 0) { T.t = 0; T.phase = 'post'; T.running = false; beep(1, 300, 0.9); }
+      return;
+    } else return;
+  }
+}
+
 let lastTick = 0, rafId = null;
 function tick(now) {
   const T = state.timer;
@@ -521,20 +566,7 @@ function tick(now) {
   const dt = (now - lastTick) / 1000;
   lastTick = now;
 
-  if (T.phase === 'transition') {
-    T.transitionLeft -= dt;
-    if (T.transitionLeft <= 0) { T.phase = 'teleop'; beep(3, 660); }
-  } else {
-    const prev = T.t;
-    T.t -= dt;
-    if (T.phase === 'auto' && T.t <= T_AUTO_END) {
-      T.t = T_AUTO_END; T.phase = 'transition'; T.transitionLeft = TRANSITION; beep(3, 420);
-    } else if (T.phase === 'teleop') {
-      if (prev > T_FLOWER && T.t <= T_FLOWER) beep(2, 880);
-      if (prev > T_FINAL && T.t <= T_FINAL) beep(1, 990);
-      if (T.t <= 0) { T.t = 0; T.phase = 'post'; T.running = false; beep(1, 300, 0.9); }
-    }
-  }
+  advance(dt);
   paintTimer();
   rafId = T.running ? requestAnimationFrame(tick) : null;
 }

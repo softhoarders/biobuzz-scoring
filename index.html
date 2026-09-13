@@ -37,10 +37,10 @@
   </header>
 
   <nav class="tabs" role="tablist">
-    <button class="tab is-active" data-view="match" role="tab">Match</button>
-    <button class="tab" data-view="breakdown" role="tab">Breakdown</button>
-    <button class="tab" data-view="history" role="tab">History</button>
-    <button class="tab" data-view="rules" role="tab">Rules</button>
+    <button class="tab is-active" id="tab-match" data-view="match" role="tab" aria-selected="true" aria-controls="view-match">Match</button>
+    <button class="tab" id="tab-breakdown" data-view="breakdown" role="tab" aria-selected="false" aria-controls="view-breakdown">Breakdown</button>
+    <button class="tab" id="tab-history" data-view="history" role="tab" aria-selected="false" aria-controls="view-history">History</button>
+    <button class="tab" id="tab-rules" data-view="rules" role="tab" aria-selected="false" aria-controls="view-rules">Rules</button>
   </nav>
 
   <div class="scoreline">
@@ -63,7 +63,7 @@
   <div id="alerts" class="alerts"></div>
 
   <!-- ========== MATCH ========== -->
-  <main class="view is-active" id="view-match">
+  <main class="view is-active" id="view-match" role="tabpanel" tabindex="0" aria-labelledby="tab-match">
     <div class="grid">
       <section class="col col-red" id="redPanel"></section>
 
@@ -98,12 +98,12 @@
   </main>
 
   <!-- ========== BREAKDOWN ========== -->
-  <section class="view" id="view-breakdown">
+  <section class="view" id="view-breakdown" role="tabpanel" tabindex="0" aria-labelledby="tab-breakdown">
     <div id="breakdown"></div>
   </section>
 
   <!-- ========== HISTORY ========== -->
-  <section class="view" id="view-history">
+  <section class="view" id="view-history" role="tabpanel" tabindex="0" aria-labelledby="tab-history">
     <div class="card">
       <div class="card-head">
         <h2>Saved matches</h2>
@@ -114,7 +114,7 @@
   </section>
 
   <!-- ========== RULES ========== -->
-  <section class="view" id="view-rules">
+  <section class="view" id="view-rules" role="tabpanel" tabindex="0" aria-labelledby="tab-rules">
     <div class="card">
       <div class="card-head"><h2>Point values &mdash; Table 10&#8209;2</h2></div>
       <div class="scroll-x">
