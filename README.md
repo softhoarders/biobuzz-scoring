@@ -14,16 +14,15 @@ browser (`localStorage`); nothing is uploaded anywhere.
 - **FLOWER ownership modelled per FLOWER** — the fiddliest part of BIOBUZZ scoring. Set the
   owner (the alliance holding the top-most NECTAR of its colour) and the element count, and
   the app awards 2 pts per element to the owner only, plus the 5 pt Bottom NECTAR Bonus
-  independently per alliance.
-- **Ranking points** — SWARM, POLLINATOR 1, POLLINATOR 2 and WIN/TIE, with editable
+  tracked independently per alliance.
+- **Ranking points** — SWARM, POLLINATOR 1, POLLINATOR 2 and Win/Tie, with editable
   thresholds (defaults are the *All Other Events* column; Championship values are TBA).
-- **Fouls** credited to the opponent, and DISQUALIFICATION zeroing points and RP.
+- **Fouls** credited to the opponent, and disqualification zeroing points and RP.
 - **Field check** — flags impossible element counts (only 40 POLLEN + 16 NECTAR exist) and
   owner/element mismatches that would silently cost an alliance points.
-- **Match history and team rankings**, sorted by the official Table 13-1 criteria:
-  RANKING SCORE → avg MATCH points minus fouls → avg TIPS → avg AUTO. Export as JSON.
-- Dark/light themes, tablet- and phone-friendly, keyboard shortcuts
-  (`Space` start/pause, `R` reset, `1`–`5` tabs).
+- **Match history** with a full per-alliance breakdown, plus JSON export.
+- Dark UI, tablet- and phone-friendly, keyboard shortcuts
+  (`Space` start/pause, `R` reset, `1`–`4` tabs).
 
 ## Scoring reference (Table 10-2)
 
@@ -38,7 +37,7 @@ browser (`localStorage`); nothing is uploaded anywhere.
 | POLLEN / NECTAR in GARDEN | – | 1 |
 
 Ranking points: SWARM (LEAVE + PARK points ≥ 16), POLLINATOR 1 (≥ 4 TIPS),
-POLLINATOR 2 (≥ 7 TIPS), WIN 3, TIE 1. MINOR FOUL gives 5 pts to the opponent, MAJOR FOUL 20.
+POLLINATOR 2 (≥ 7 TIPS), Win 3, Tie 1. MINOR FOUL gives 5 pts to the opponent, MAJOR FOUL 20.
 
 ## Running locally
 
@@ -59,8 +58,9 @@ from disk. It is generated, so it is not checked in.
 
 ## Deploying
 
-Any static host works. On Vercel there is nothing to configure — no framework, no build
-command, no output directory.
+Any static host works — the repo root is the site root. On Vercel there is nothing to
+configure: no framework, no build command, no output directory. For GitHub Pages, point
+Pages at this branch with the folder set to `/ (root)`; `.nojekyll` keeps Jekyll out of it.
 
 ## Disclaimer
 

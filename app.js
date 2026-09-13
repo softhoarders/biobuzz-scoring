@@ -1,35 +1,35 @@
 /* ============================================================
    BIOBUZZ Scorer — FTC 2026-27
-   Scoring model per BIOBUZZ Competition Manual V1, Tables 10-2 / 10-3 / 13-1.
+   Scoring model per BIOBUZZ Competition Manual V1 (Tables 10-2, 10-3).
    Unofficial. Pure client-side; no backend.
    ============================================================ */
 'use strict';
 
-/* ---------- constants from the manual ---------- */
+/* ---------- point values, Table 10-2 ---------- */
 const PTS = {
-  LEAVE: 3,        // AUTO only, per ROBOT
-  PARK: 5,         // AUTO and TELEOP, per ROBOT
-  TIP: 20,         // AUTO and TELEOP, per HIVE TIP
-  CELL: 2,         // per POLLEN/NECTAR left in upward-facing CELL
-  BOTTOM: 5,       // Bottom NECTAR Bonus, per FLOWER
-  FLOWER: 2,       // per element in an owned FLOWER
-  GARDEN: 1        // per element in own GARDEN
+  LEAVE: 3,     // AUTO only, per ROBOT
+  PARK: 5,      // AUTO and TELEOP, per ROBOT
+  TIP: 20,      // AUTO and TELEOP, per HIVE TIP
+  CELL: 2,      // per element left in the upward-facing CELL
+  BOTTOM: 5,    // Bottom NECTAR Bonus, per FLOWER
+  FLOWER: 2,    // per element in an owned FLOWER
+  GARDEN: 1     // per element in own GARDEN
 };
-const FOUL = { minor: 5, major: 20 };   // credited to the OPPONENT
+const FOUL = { minor: 5, major: 20 };              // credited to the OPPONENT
 const RP = { win: 3, tie: 1, loss: 0 };
-const DEFAULT_THRESHOLDS = { swarm: 16, poll1: 4, poll2: 7 };  // "All Other Events", Table 10-3
+const DEFAULT_THRESHOLDS = { swarm: 16, poll1: 4, poll2: 7 };   // "All Other Events", Table 10-3
 
 const FLOWERS = 4;
-const ROBOTS = 2;
 const TOTAL_POLLEN = 40, NECTAR_PER_ALLIANCE = 8;
-const MAX_ELEMENTS = TOTAL_POLLEN + NECTAR_PER_ALLIANCE * 2;   // 56
+const MAX_ELEMENTS = TOTAL_POLLEN + NECTAR_PER_ALLIANCE * 2;    // 56
 
-/* timer: field clock shows 2:30 -> 0:00; AUTO ends at 2:00; 8s transition */
+/* field clock: 2:30 -> 0:00, AUTO ends at 2:00, then an 8s transition */
 const T_START = 150, T_AUTO_END = 120, T_FLOWER = 60, T_FINAL = 20, TRANSITION = 8;
+
+const VIEWS = ['match', 'breakdown', 'history', 'rules'];
 
 /* ---------- state ---------- */
 const blankAlliance = () => ({
-  teams: ['', ''],
   auto:   { leave: [false, false], park: [false, false], tips: 0 },
   teleop: { park: [false, false], tips: 0, cell: 0, garden: 0 },
   fouls:  { minor: 0, major: 0 },
@@ -46,7 +46,6 @@ const state = {
   thresholds: { ...DEFAULT_THRESHOLDS },
   timer: { t: T_START, phase: 'pre', running: false, transitionLeft: 0 },
   sound: true,
-  view: 'match',
   history: []
 };
 
@@ -59,23 +58,16 @@ function loadStore() {
     const c = JSON.parse(localStorage.getItem(LS.cfg) || '{}');
     if (c.thresholds) state.thresholds = { ...DEFAULT_THRESHOLDS, ...c.thresholds };
     if (typeof c.sound === 'boolean') state.sound = c.sound;
-    if (c.theme) document.documentElement.dataset.theme = c.theme;
-  } catch (e) { /* corrupt or unavailable storage: start clean */ }
+  } catch (e) { /* unavailable or corrupt storage: start clean */ }
 }
-function saveHistory() {
-  try { localStorage.setItem(LS.hist, JSON.stringify(state.history)); } catch (e) {}
-}
-function saveConfig() {
-  try {
-    localStorage.setItem(LS.cfg, JSON.stringify({
-      thresholds: state.thresholds, sound: state.sound,
-      theme: document.documentElement.dataset.theme
-    }));
-  } catch (e) {}
-}
+const saveHistory = () => { try { localStorage.setItem(LS.hist, JSON.stringify(state.history)); } catch (e) {} };
+const saveConfig  = () => {
+  try { localStorage.setItem(LS.cfg, JSON.stringify({ thresholds: state.thresholds, sound: state.sound })); }
+  catch (e) {}
+};
 
 /* ============================================================
-   SCORING ENGINE
+   SCORING
    ============================================================ */
 const count = arr => arr.filter(Boolean).length;
 
@@ -88,7 +80,7 @@ function flowerPoints(flowers, color) {
   return { owned, bottom };
 }
 
-/** Full itemised score for one alliance. `opp` supplies the fouls credited to us. */
+/** Itemised score for one alliance. `opp` supplies the fouls credited to us. */
 function scoreAlliance(a, opp, flowers, color, thresholds) {
   const leaveN = count(a.auto.leave);
   const autoParkN = count(a.auto.park);
@@ -112,13 +104,12 @@ function scoreAlliance(a, opp, flowers, color, thresholds) {
   };
   teleop.total = teleop.park + teleop.tips + teleop.cell + teleop.bottom + teleop.flower + teleop.garden;
 
-  // Fouls committed by the opponent are credited to us.
+  // Fouls the opponent committed are credited to us; a DQ'd alliance credits nothing.
   const foulPts = opp.dq ? 0 : opp.fouls.minor * FOUL.minor + opp.fouls.major * FOUL.major;
 
   const noFouls = auto.total + teleop.total;
   const total = a.dq ? 0 : noFouls + foulPts;
 
-  // Ranking-point components
   const swarmPts = auto.leave + auto.park + teleop.park;   // combined LEAVE + PARK points
   const tips = a.auto.tips + a.teleop.tips;
 
@@ -131,7 +122,7 @@ function scoreAlliance(a, opp, flowers, color, thresholds) {
   };
 }
 
-/** Scores both alliances plus the head-to-head RP that depend on the comparison. */
+/** Both alliances, plus the head-to-head RP that depend on the comparison. */
 function scoreMatch(m) {
   const th = m.thresholds || state.thresholds;
   const red = scoreAlliance(m.red, m.blue, m.flowers, 'red', th);
@@ -153,124 +144,107 @@ function scoreMatch(m) {
    RENDERING
    ============================================================ */
 const $ = s => document.querySelector(s);
-const el = (tag, cls, html) => {
-  const n = document.createElement(tag);
-  if (cls) n.className = cls;
-  if (html != null) n.innerHTML = html;
-  return n;
-};
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
-/** A -/+ stepper bound to a state path. */
 function stepper(path, value, min, max) {
   return `<div class="stepper">
-    <button data-step="${path}" data-d="-1" ${value <= min ? 'disabled' : ''} aria-label="decrease">&minus;</button>
-    <span class="val">${value}</span>
-    <button data-step="${path}" data-d="1" ${value >= max ? 'disabled' : ''} aria-label="increase">+</button>
+    <button data-step="${path}" data-d="-1"${value <= min ? ' disabled' : ''} aria-label="Decrease">&minus;</button>
+    <span class="v">${value}</span>
+    <button data-step="${path}" data-d="1"${value >= max ? ' disabled' : ''} aria-label="Increase">+</button>
   </div>`;
 }
-/** A scoring row: label, control, computed points. */
-function row(label, badge, control, pts, sub) {
-  return `<div class="row">
-    <div class="row-label">${label}<span class="pts">${badge}</span>${sub ? `<span class="row-sub">${sub}</span>` : ''}</div>
-    ${control}
-    <div class="row-pts ${pts > 0 ? 'on' : ''}">${pts}</div>
+function row(name, rate, sub, control, pts) {
+  return `<div class="row"${control === '' ? ' data-derived="1"' : ''}>
+    <div class="row-name">${name}<span class="rate">${rate}</span>${sub ? `<span class="sub">${sub}</span>` : ''}</div>
+    ${control || '<span></span>'}
+    <div class="row-val" data-on="${pts > 0 ? 1 : 0}">${pts}</div>
   </div>`;
 }
-/** Per-robot toggle chips (LEAVE / PARK). */
-function robotChips(path, flags) {
-  return `<div class="chips">${flags.map((v, i) =>
-    `<button class="chip ${v ? 'on' : ''}" data-toggle="${path}" data-i="${i}">R${i + 1}</button>`
+function robotToggles(path, flags) {
+  return `<div class="toggles">${flags.map((v, i) =>
+    `<button class="toggle" data-toggle="${path}" data-i="${i}" aria-pressed="${v}">R${i + 1}</button>`
   ).join('')}</div>`;
 }
 
 function renderAlliance(color) {
   const a = state[color];
-  const s = currentScores[color];
+  const s = scores[color];
   const th = state.thresholds;
-  const NAME = color.toUpperCase();
 
-  const rpPill = (on, name, detail) =>
-    `<span class="rp ${on ? 'on' : ''}">${on ? '&#9679;' : '&#9675;'} ${name} <small>${detail}</small></span>`;
+  const chip = (earned, label, detail) =>
+    `<span class="rp" data-earned="${earned ? 1 : 0}">${label} <em>${detail}</em></span>`;
 
   return `
+  <div class="col-head">
+    <span class="col-name">${color}</span>
+    <span class="col-sum">${s.total} pts &middot; ${s.rp} RP</span>
+  </div>
+
   <div class="card">
-    <div class="card-head"><h2>${NAME} ALLIANCE</h2><span class="hint">${s.total} pts</span></div>
-    <div class="teams">
-      <input class="text-input" data-team="${color}.0" value="${esc(a.teams[0])}" placeholder="Team 1" inputmode="numeric">
-      <input class="text-input" data-team="${color}.1" value="${esc(a.teams[1])}" placeholder="Team 2" inputmode="numeric">
+    <div class="card-head"><h2>Autonomous</h2><span class="meta">0:30</span></div>
+    ${row('LEAVE', '3 ea', 'Not contacting the perimeter wall', robotToggles(`${color}.auto.leave`, a.auto.leave), s.auto.leave)}
+    ${row('PARK', '5 ea', 'Partially in the LOADING ZONE', robotToggles(`${color}.auto.park`, a.auto.park), s.auto.park)}
+    ${row('HIVE TIP', '20 ea', '', stepper(`${color}.auto.tips`, a.auto.tips, 0, 30), s.auto.tips)}
+    <div class="subtotal"><span>Auto subtotal</span><b>${s.auto.total}</b></div>
+  </div>
+
+  <div class="card">
+    <div class="card-head"><h2>Teleop</h2><span class="meta">2:00</span></div>
+    ${row('PARK', '5 ea', 'Partially in the LOADING ZONE', robotToggles(`${color}.teleop.park`, a.teleop.park), s.teleop.park)}
+    ${row('HIVE TIP', '20 ea', '', stepper(`${color}.teleop.tips`, a.teleop.tips, 0, 30), s.teleop.tips)}
+    ${row('In CELL', '2 ea', 'Left in the upward-facing CELL', stepper(`${color}.teleop.cell`, a.teleop.cell, 0, MAX_ELEMENTS), s.teleop.cell)}
+    ${row('In GARDEN', '1 ea', `Any element in the ${color} GARDEN`, stepper(`${color}.teleop.garden`, a.teleop.garden, 0, MAX_ELEMENTS), s.teleop.garden)}
+    ${row('Owned FLOWERS', '2 ea', 'Set in the Flowers panel', '', s.teleop.flower)}
+    ${row('Bottom NECTAR', '5 ea', 'Set in the Flowers panel', '', s.teleop.bottom)}
+    <div class="subtotal"><span>Teleop subtotal</span><b>${s.teleop.total}</b></div>
+  </div>
+
+  <div class="card">
+    <div class="card-head"><h2>Fouls committed</h2><span class="meta">go to opponent</span></div>
+    ${row('MINOR FOUL', '5 opp', '', stepper(`${color}.fouls.minor`, a.fouls.minor, 0, 99), a.fouls.minor * FOUL.minor)}
+    ${row('MAJOR FOUL', '20 opp', '', stepper(`${color}.fouls.major`, a.fouls.major, 0, 99), a.fouls.major * FOUL.major)}
+    <div class="subtotal"><span>Received from opponent</span><b>+${s.foulPts}</b></div>
+    <div class="dq">
+      <span>Disqualified</span>
+      <button class="toggle is-dq" data-dq="${color}" aria-pressed="${a.dq}">${a.dq ? 'DQ — 0 pts' : 'No'}</button>
     </div>
   </div>
 
   <div class="card">
-    <div class="card-head"><h2>AUTONOMOUS</h2><span class="hint">0:30</span></div>
-    ${row('LEAVE', '3 ea', robotChips(`${color}.auto.leave`, a.auto.leave), s.auto.leave, 'Not contacting perimeter wall')}
-    ${row('PARK', '5 ea', robotChips(`${color}.auto.park`, a.auto.park), s.auto.park, 'Partially in LOADING ZONE')}
-    ${row('HIVE TIP', '20 ea', stepper(`${color}.auto.tips`, a.auto.tips, 0, 30), s.auto.tips)}
-    <div class="subtotal"><span>AUTO SUBTOTAL</span><b>${s.auto.total}</b></div>
-  </div>
-
-  <div class="card">
-    <div class="card-head"><h2>TELEOP</h2><span class="hint">2:00</span></div>
-    ${row('PARK', '5 ea', robotChips(`${color}.teleop.park`, a.teleop.park), s.teleop.park, 'Partially in LOADING ZONE')}
-    ${row('HIVE TIP', '20 ea', stepper(`${color}.teleop.tips`, a.teleop.tips, 0, 30), s.teleop.tips)}
-    ${row('In CELL', '2 ea', stepper(`${color}.teleop.cell`, a.teleop.cell, 0, MAX_ELEMENTS), s.teleop.cell, 'Left in upward-facing CELL at end')}
-    ${row('In GARDEN', '1 ea', stepper(`${color}.teleop.garden`, a.teleop.garden, 0, MAX_ELEMENTS), s.teleop.garden, 'Any element in the ' + color + ' GARDEN')}
-    ${row('Owned FLOWERS', '2 ea', `<span class="hint">from FLOWERS &rarr;</span>`, s.teleop.flower)}
-    ${row('Bottom NECTAR', '5 ea', `<span class="hint">from FLOWERS &rarr;</span>`, s.teleop.bottom)}
-    <div class="subtotal"><span>TELEOP SUBTOTAL</span><b>${s.teleop.total}</b></div>
-  </div>
-
-  <div class="card">
-    <div class="card-head"><h2>FOULS COMMITTED</h2><span class="hint">credited to opponent</span></div>
-    ${row('MINOR FOUL', '5 to opp', stepper(`${color}.fouls.minor`, a.fouls.minor, 0, 99), a.fouls.minor * FOUL.minor)}
-    ${row('MAJOR FOUL', '20 to opp', stepper(`${color}.fouls.major`, a.fouls.major, 0, 99), a.fouls.major * FOUL.major)}
-    <div class="subtotal"><span>RECEIVED FROM OPPONENT</span><b>+${s.foulPts}</b></div>
-    <div class="dq-row">
-      <span class="dq-label">DISQUALIFIED</span>
-      <button class="chip dq ${a.dq ? 'on' : ''}" data-dq="${color}">${a.dq ? 'DQ &mdash; 0 pts' : 'No'}</button>
-    </div>
-  </div>
-
-  <div class="card">
-    <div class="card-head"><h2>RANKING POINTS</h2><span class="hint">${s.rp} RP</span></div>
-    <div class="rp-list">
-      ${rpPill(s.swarmRP, 'SWARM', `${s.swarmPts}/${th.swarm} pts`)}
-      ${rpPill(s.poll1RP, 'POLLINATOR&nbsp;1', `${s.tips}/${th.poll1} tips`)}
-      ${rpPill(s.poll2RP, 'POLLINATOR&nbsp;2', `${s.tips}/${th.poll2} tips`)}
-      ${rpPill(s.resultRP > 0, s.resultRP === RP.win ? 'WIN' : (s.resultRP === RP.tie ? 'TIE' : 'LOSS'), `+${s.resultRP}`)}
+    <div class="card-head"><h2>Ranking points</h2><span class="meta">${s.rp} RP</span></div>
+    <div class="rps">
+      ${chip(s.swarmRP, 'SWARM', `${s.swarmPts}/${th.swarm}`)}
+      ${chip(s.poll1RP, 'POLLINATOR 1', `${s.tips}/${th.poll1}`)}
+      ${chip(s.poll2RP, 'POLLINATOR 2', `${s.tips}/${th.poll2}`)}
+      ${chip(s.resultRP > 0, s.resultRP === RP.win ? 'Win' : (s.resultRP === RP.tie ? 'Tie' : 'Loss'), `+${s.resultRP}`)}
     </div>
   </div>`;
 }
 
 function renderFlowers() {
-  const wrap = $('#flowerList');
-  wrap.innerHTML = state.flowers.map((f, i) => {
-    const redPts = (f.owner === 'red' ? f.elements * PTS.FLOWER : 0) + (f.bottomRed ? PTS.BOTTOM : 0);
-    const bluePts = (f.owner === 'blue' ? f.elements * PTS.FLOWER : 0) + (f.bottomBlue ? PTS.BOTTOM : 0);
-    const yield_ = `<span class="${redPts ? 'r' : 'z'}">R&nbsp;${redPts}</span> &middot; <span class="${bluePts ? 'b' : 'z'}">B&nbsp;${bluePts}</span>`;
-    return `<div class="flower ${f.owner !== 'none' ? 'owned-' + f.owner : ''}">
+  $('#flowerList').innerHTML = state.flowers.map((f, i) => {
+    const r = (f.owner === 'red' ? f.elements * PTS.FLOWER : 0) + (f.bottomRed ? PTS.BOTTOM : 0);
+    const b = (f.owner === 'blue' ? f.elements * PTS.FLOWER : 0) + (f.bottomBlue ? PTS.BOTTOM : 0);
+    const seg = (v, label) =>
+      `<button class="toggle" data-owner="${i}" data-v="${v}" aria-pressed="${f.owner === v}">${label}</button>`;
+    return `<div class="flower" data-owner="${f.owner}">
       <div class="flower-head">
-        <span class="flower-name">FLOWER ${i + 1}</span>
-        <span class="flower-yield">${yield_}</span>
+        <span class="flower-name">Flower ${i + 1}</span>
+        <span class="flower-out"><span class="${r ? 'r' : ''}">R ${r}</span> &middot; <span class="${b ? 'b' : ''}">B ${b}</span></span>
       </div>
-      <div class="flower-line">
-        <span>ELEMENTS</span>
+      <div class="flower-row">
+        <label>Elements</label>
         ${stepper(`flowers.${i}.elements`, f.elements, 0, MAX_ELEMENTS)}
       </div>
-      <div class="flower-line">
-        <span>OWNER</span>
-        <div class="owner-chips">
-          <button class="chip ${f.owner === 'none' ? 'on-none' : ''}" data-owner="${i}" data-v="none">None</button>
-          <button class="chip ${f.owner === 'red' ? 'on-red' : ''}" data-owner="${i}" data-v="red">Red</button>
-          <button class="chip ${f.owner === 'blue' ? 'on-blue' : ''}" data-owner="${i}" data-v="blue">Blue</button>
-        </div>
+      <div class="flower-row">
+        <label>Owner</label>
+        <div class="seg">${seg('none', 'None')}${seg('red', 'Red')}${seg('blue', 'Blue')}</div>
       </div>
-      <div class="flower-line">
-        <span>BOTTOM&nbsp;NECTAR</span>
-        <div class="bottom-chips">
-          <button class="chip ${f.bottomRed ? 'on-red' : ''}" data-bottom="${i}" data-v="red">Red +5</button>
-          <button class="chip ${f.bottomBlue ? 'on-blue' : ''}" data-bottom="${i}" data-v="blue">Blue +5</button>
+      <div class="flower-row">
+        <label>Bottom NECTAR</label>
+        <div class="seg">
+          <button class="toggle" data-bottom="${i}" data-v="red" aria-pressed="${f.bottomRed}">Red +5</button>
+          <button class="toggle" data-bottom="${i}" data-v="blue" aria-pressed="${f.bottomBlue}">Blue +5</button>
         </div>
       </div>
     </div>`;
@@ -282,183 +256,129 @@ function renderFieldCheck() {
   const inCells = state.red.teleop.cell + state.blue.teleop.cell;
   const inGardens = state.red.teleop.garden + state.blue.teleop.garden;
   const placed = inFlowers + inCells + inGardens;
-  const pct = Math.min(100, (placed / MAX_ELEMENTS) * 100);
   const over = placed > MAX_ELEMENTS;
-  const bottomRed = state.flowers.filter(f => f.bottomRed).length;
-  const bottomBlue = state.flowers.filter(f => f.bottomBlue).length;
+  const bR = state.flowers.filter(f => f.bottomRed).length;
+  const bB = state.flowers.filter(f => f.bottomBlue).length;
 
-  $('#fieldCheck').innerHTML = `
-    <div class="fc-row ${over ? 'bad' : ''}"><span>Elements accounted for</span><b>${placed} / ${MAX_ELEMENTS}</b></div>
-    <div class="bar"><i class="${over ? 'over' : ''}" style="width:${pct}%"></i></div>
-    <div class="fc-row"><span>&nbsp;&nbsp;in FLOWERS</span><b>${inFlowers}</b></div>
-    <div class="fc-row"><span>&nbsp;&nbsp;in CELLS</span><b>${inCells}</b></div>
-    <div class="fc-row"><span>&nbsp;&nbsp;in GARDENS</span><b>${inGardens}</b></div>
-    <div class="fc-row"><span>Bottom NECTAR bonuses</span><b>R ${bottomRed} &middot; B ${bottomBlue}</b></div>
-    <div class="fc-row"><span>Total TIPS</span><b>R ${currentScores.red.tips} &middot; B ${currentScores.blue.tips}</b></div>`;
+  $('#fieldCheck').innerHTML = `<div class="fc">
+    <div class="fc-row" data-bad="${over ? 1 : 0}"><span>Elements accounted for</span><b>${placed} / ${MAX_ELEMENTS}</b></div>
+    <div class="meter"><i data-over="${over ? 1 : 0}" style="width:${Math.min(100, placed / MAX_ELEMENTS * 100)}%"></i></div>
+    <div class="fc-row indent"><span>in FLOWERS</span><b>${inFlowers}</b></div>
+    <div class="fc-row indent"><span>in CELLS</span><b>${inCells}</b></div>
+    <div class="fc-row indent"><span>in GARDENS</span><b>${inGardens}</b></div>
+    <div class="fc-row"><span>Bottom NECTAR bonuses</span><b>R ${bR} &middot; B ${bB}</b></div>
+    <div class="fc-row"><span>Total TIPS</span><b>R ${scores.red.tips} &middot; B ${scores.blue.tips}</b></div>
+  </div>`;
 
-  // Warnings that a scorekeeper would want to catch before committing a match.
+  // Things a scorekeeper wants caught before the match is committed.
   const alerts = [];
-  if (over) alerts.push({ err: true, msg: `${placed} elements accounted for, but only ${MAX_ELEMENTS} exist on the FIELD (40 POLLEN + 16 NECTAR).` });
+  if (over) alerts.push({ level: 'error', msg: `${placed} elements accounted for, but the FIELD only holds ${MAX_ELEMENTS} (40 POLLEN + 16 NECTAR).` });
   state.flowers.forEach((f, i) => {
     if (f.owner !== 'none' && f.elements === 0)
-      alerts.push({ msg: `FLOWER ${i + 1} has an owner but 0 elements — owner scores nothing.` });
+      alerts.push({ msg: `Flower ${i + 1} has an owner but no elements — the owner scores nothing.` });
     if (f.owner === 'none' && f.elements > 0)
-      alerts.push({ msg: `FLOWER ${i + 1} has ${f.elements} element(s) but no owner — no one scores them.` });
-    if (f.bottomRed && f.elements === 0) alerts.push({ msg: `FLOWER ${i + 1}: red Bottom NECTAR bonus set but the FLOWER is empty.` });
-    if (f.bottomBlue && f.elements === 0) alerts.push({ msg: `FLOWER ${i + 1}: blue Bottom NECTAR bonus set but the FLOWER is empty.` });
+      alerts.push({ msg: `Flower ${i + 1} holds ${f.elements} element${f.elements > 1 ? 's' : ''} but has no owner — nobody scores them.` });
+    if ((f.bottomRed || f.bottomBlue) && f.elements === 0)
+      alerts.push({ msg: `Flower ${i + 1} has a Bottom NECTAR bonus set but is empty.` });
   });
-  $('#alerts').innerHTML = alerts.map(a => `<div class="alert ${a.err ? 'err' : ''}">${a.msg}</div>`).join('');
+  $('#alerts').innerHTML = alerts
+    .map(a => `<div class="alert"${a.level ? ` data-level="${a.level}"` : ''}>${a.msg}</div>`).join('');
 }
 
-function renderScorebar() {
-  const { red, blue, outcome } = currentScores;
+function renderScoreline() {
+  const { red, blue, outcome } = scores;
   $('#redTotal').textContent = red.total;
   $('#blueTotal').textContent = blue.total;
   $('#redRP').textContent = `${red.rp} RP`;
   $('#blueRP').textContent = `${blue.rp} RP`;
   const pill = $('#resultPill');
-  pill.className = 'result-pill ' + (outcome === 'tie' ? '' : outcome);
-  pill.textContent = outcome === 'tie' ? 'TIE' : outcome.toUpperCase() + ' WINS';
+  pill.textContent = outcome === 'tie' ? 'Tie' : (outcome === 'red' ? 'Red wins' : 'Blue wins');
+  pill.dataset.win = outcome;
   const d = Math.abs(red.total - blue.total);
   $('#margin').textContent = d === 0 ? '—' : `by ${d}`;
 }
 
 function renderBreakdown() {
-  const lines = (s, a) => [
-    ['sub', 'AUTONOMOUS', s.auto.total],
-    ['', `LEAVE &times; ${s.leaveN}`, s.auto.leave],
-    ['', `PARK &times; ${s.autoParkN}`, s.auto.park],
-    ['', `HIVE TIP &times; ${a.auto.tips}`, s.auto.tips],
-    ['sub', 'TELEOP', s.teleop.total],
-    ['', `PARK &times; ${s.teleParkN}`, s.teleop.park],
-    ['', `HIVE TIP &times; ${a.teleop.tips}`, s.teleop.tips],
-    ['', `In CELL &times; ${a.teleop.cell}`, s.teleop.cell],
-    ['', `Owned FLOWER elements`, s.teleop.flower],
-    ['', `Bottom NECTAR bonus`, s.teleop.bottom],
-    ['', `In GARDEN &times; ${a.teleop.garden}`, s.teleop.garden],
-    ['sub', 'ADJUSTMENTS', s.foulPts],
-    ['', `Opponent MINOR FOULS`, (a === state.red ? state.blue : state.red).fouls.minor * FOUL.minor],
-    ['', `Opponent MAJOR FOULS`, (a === state.red ? state.blue : state.red).fouls.major * FOUL.major]
-  ];
-  const col = (color) => {
-    const s = currentScores[color], a = state[color];
-    const rows = lines(s, a).map(([kind, label, v]) =>
-      `<tr class="${kind === 'sub' ? 'bd-sub' : (v === 0 ? 'bd-zero' : '')}"><td>${label}</td><td class="num">${v}</td></tr>`
+  const col = color => {
+    const s = scores[color], a = state[color], opp = color === 'red' ? state.blue : state.red;
+    const lines = [
+      ['group', 'Autonomous', s.auto.total],
+      ['', `LEAVE &times; ${s.leaveN}`, s.auto.leave],
+      ['', `PARK &times; ${s.autoParkN}`, s.auto.park],
+      ['', `HIVE TIP &times; ${a.auto.tips}`, s.auto.tips],
+      ['group', 'Teleop', s.teleop.total],
+      ['', `PARK &times; ${s.teleParkN}`, s.teleop.park],
+      ['', `HIVE TIP &times; ${a.teleop.tips}`, s.teleop.tips],
+      ['', `In CELL &times; ${a.teleop.cell}`, s.teleop.cell],
+      ['', 'Owned FLOWER elements', s.teleop.flower],
+      ['', 'Bottom NECTAR bonus', s.teleop.bottom],
+      ['', `In GARDEN &times; ${a.teleop.garden}`, s.teleop.garden],
+      ['group', 'Adjustments', s.foulPts],
+      ['', `Opponent MINOR FOULS &times; ${opp.fouls.minor}`, opp.dq ? 0 : opp.fouls.minor * FOUL.minor],
+      ['', `Opponent MAJOR FOULS &times; ${opp.fouls.major}`, opp.dq ? 0 : opp.fouls.major * FOUL.major]
+    ];
+    const body = lines.map(([kind, label, v]) =>
+      `<tr data-kind="${kind || (v === 0 ? 'zero' : '')}"><td>${label}</td><td class="n">${v}</td></tr>`
     ).join('');
-    return `<div class="bd-col ${color}">
-      <h3>${color.toUpperCase()} ALLIANCE${a.dq ? ' — DISQUALIFIED' : ''}</h3>
-      <table><tbody>${rows}
-        <tr class="bd-total"><td>MATCH POINTS</td><td class="num">${s.total}</td></tr>
-        <tr class="bd-zero"><td>Points excluding FOULS <small>(rank sort 2)</small></td><td class="num">${s.noFouls}</td></tr>
-        <tr><td>RANKING POINTS</td><td class="num">${s.rp}</td></tr>
+    return `<div class="card bd-${color}">
+      <h3>${color}${a.dq ? ' — disqualified' : ''}</h3>
+      <table class="table"><tbody>${body}
+        <tr data-kind="total"><td>Match points</td><td class="n">${s.total}</td></tr>
+        <tr data-kind="zero"><td>Excluding fouls</td><td class="n">${s.noFouls}</td></tr>
+        <tr data-kind="rp"><td>Ranking points</td><td class="n">${s.rp}</td></tr>
       </tbody></table></div>`;
   };
-  $('#breakdown').innerHTML = `<div class="bd-grid">${col('red')}${col('blue')}</div>`;
+  $('#breakdown').innerHTML = `<div class="bd">${col('red')}${col('blue')}</div>`;
 }
 
 function renderHistory() {
   const wrap = $('#historyList');
   if (!state.history.length) {
-    wrap.innerHTML = `<div class="empty">No saved matches yet. Score a match, then press <b>Save Match to History</b>.</div>`;
+    wrap.innerHTML = `<div class="empty">No saved matches yet. Score a match, then choose <b>Save match</b>.</div>`;
     return;
   }
   wrap.innerHTML = state.history.map((m, i) => {
     const s = scoreMatch(m);
-    const teams = t => t.filter(Boolean).join(' & ') || '—';
     return `<div class="hist">
-      <div class="hist-label">${esc(m.label || '#' + (i + 1))}</div>
-      <div>
-        <div class="hist-score">
-          <span class="r">${s.red.total}</span><span class="sep">vs</span><span class="b">${s.blue.total}</span>
-          <span class="sep">&nbsp;${s.red.rp} / ${s.blue.rp} RP</span>
-        </div>
-        <div class="hist-teams">Red ${esc(teams(m.red.teams))} &nbsp;&middot;&nbsp; Blue ${esc(teams(m.blue.teams))}</div>
+      <div class="hist-main">
+        <span class="hist-label">${esc(m.label || '#' + (i + 1))}</span>
+        <span class="hist-score"><span class="r">${s.red.total}</span><span class="x">vs</span><span class="b">${s.blue.total}</span></span>
+        <span class="hist-rp">${s.red.rp} / ${s.blue.rp} RP</span>
       </div>
-      <div style="display:flex;gap:6px">
-        <button class="btn btn-small" data-load="${i}">Load</button>
-        <button class="btn btn-small btn-danger" data-del="${i}">Delete</button>
+      <div class="hist-btns">
+        <button class="btn btn-sm" data-load="${i}">Load</button>
+        <button class="btn btn-sm btn-quiet" data-del="${i}">Delete</button>
       </div>
     </div>`;
   }).join('');
 }
 
-function renderRankings() {
-  /* Per 13.6.3: RANKING SCORE = average RP. Sort: RS, avg (match points - fouls),
-     avg TIPS, avg AUTO. A DISQUALIFIED match contributes 0 to all criteria. */
-  const teams = new Map();
-  const bump = (num, side, s, dq) => {
-    if (!num) return;
-    if (!teams.has(num)) teams.set(num, { team: num, n: 0, rp: 0, pts: 0, tips: 0, auto: 0, w: 0, l: 0, t: 0 });
-    const r = teams.get(num);
-    r.n++;
-    if (dq) return;                       // DQ contributes 0 to every criterion
-    r.rp += s.rp; r.pts += s.noFouls; r.tips += s.tips; r.auto += s.auto.total;
-    if (s.resultRP === RP.win) r.w++; else if (s.resultRP === RP.tie) r.t++; else r.l++;
-  };
-  for (const m of state.history) {
-    const s = scoreMatch(m);
-    m.red.teams.forEach(t => bump(t.trim(), 'red', s.red, m.red.dq));
-    m.blue.teams.forEach(t => bump(t.trim(), 'blue', s.blue, m.blue.dq));
-  }
-  const rows = [...teams.values()].map(r => ({
-    ...r, rs: r.rp / r.n, aPts: r.pts / r.n, aTips: r.tips / r.n, aAuto: r.auto / r.n
-  })).sort((a, b) =>
-    b.rs - a.rs || b.aPts - a.aPts || b.aTips - a.aTips || b.aAuto - a.aAuto
-  );
-
-  const wrap = $('#rankingsTable');
-  if (!rows.length) {
-    wrap.innerHTML = `<div class="empty">No ranking data. Enter team numbers on the Match tab and save matches to build a ranking.</div>`;
-    return;
-  }
-  const f = (n, d = 2) => n.toFixed(d);
-  wrap.innerHTML = `<div class="table-wrap"><table>
-    <thead><tr>
-      <th>#</th><th>Team</th><th class="num">RS</th><th class="num">Pts&minus;Fouls</th>
-      <th class="num">TIPS</th><th class="num">AUTO</th><th class="num">W&ndash;L&ndash;T</th><th class="num">Played</th>
-    </tr></thead><tbody>
-    ${rows.map((r, i) => `<tr>
-      <td class="${i === 0 ? 'rank-1' : ''}">${i + 1}</td>
-      <td><b>${esc(r.team)}</b></td>
-      <td class="num ${i === 0 ? 'rank-1' : ''}">${f(r.rs)}</td>
-      <td class="num">${f(r.aPts, 1)}</td>
-      <td class="num">${f(r.aTips, 1)}</td>
-      <td class="num">${f(r.aAuto, 1)}</td>
-      <td class="num">${r.w}&ndash;${r.l}&ndash;${r.t}</td>
-      <td class="num">${r.n}</td>
-    </tr>`).join('')}
-  </tbody></table></div>`;
-}
-
 function renderThresholds() {
-  const box = $('#thresholdSettings');
   const item = (key, label, unit) => `<div class="setting">
-    <label>${label} <span style="opacity:.7">(${unit})</span></label>
+    <label>${label}<span class="unit">${unit}</span></label>
     ${stepper(`thresholds.${key}`, state.thresholds[key], 0, 99)}
   </div>`;
-  box.innerHTML =
-    item('swarm', 'SWARM RP threshold', 'LEAVE + PARK pts') +
-    item('poll1', 'POLLINATOR 1 threshold', 'TIPS') +
-    item('poll2', 'POLLINATOR 2 threshold', 'TIPS');
+  $('#thresholdSettings').innerHTML =
+    item('swarm', 'SWARM', 'LEAVE + PARK points') +
+    item('poll1', 'POLLINATOR 1', 'HIVE TIPS') +
+    item('poll2', 'POLLINATOR 2', 'HIVE TIPS');
 }
 
-/* master render */
-let currentScores = null;
+let scores = null;
 function render() {
-  currentScores = scoreMatch(state);
+  scores = scoreMatch(state);
   $('#redPanel').innerHTML = renderAlliance('red');
   $('#bluePanel').innerHTML = renderAlliance('blue');
   renderFlowers();
-  renderScorebar();
+  renderScoreline();
   renderFieldCheck();
   renderBreakdown();
   renderHistory();
-  renderRankings();
   renderThresholds();
 }
 
 /* ============================================================
-   STATE MUTATION VIA data-* PATHS
+   STATE MUTATION
    ============================================================ */
 function getRef(path) {
   const parts = path.split('.');
@@ -468,7 +388,7 @@ function getRef(path) {
 }
 function stepPath(path, d) {
   const { obj, key } = getRef(path);
-  const max = path.includes('tips') || path.includes('fouls') || path.startsWith('thresholds') ? 99 : MAX_ELEMENTS;
+  const max = /tips|fouls/.test(path) || path.startsWith('thresholds') ? 99 : MAX_ELEMENTS;
   obj[key] = Math.max(0, Math.min(max, (obj[key] || 0) + d));
   if (path.startsWith('thresholds')) saveConfig();
   render();
@@ -479,8 +399,7 @@ document.addEventListener('click', e => {
   if (!t) return;
 
   if (t.dataset.step) return stepPath(t.dataset.step, Number(t.dataset.d));
-
-  if (t.dataset.toggle) {                       // per-robot LEAVE / PARK
+  if (t.dataset.toggle) {
     const { obj, key } = getRef(t.dataset.toggle);
     const i = Number(t.dataset.i);
     obj[key][i] = !obj[key][i];
@@ -502,33 +421,27 @@ document.addEventListener('click', e => {
   if (t.dataset.load !== undefined) return loadMatch(Number(t.dataset.load));
   if (t.dataset.del !== undefined) {
     state.history.splice(Number(t.dataset.del), 1);
-    saveHistory(); return render();
+    saveHistory();
+    return render();
   }
   if (t.classList.contains('tab')) return switchView(t.dataset.view);
 });
 
 document.addEventListener('input', e => {
-  const t = e.target;
-  if (t.dataset.team) {
-    const [color, i] = t.dataset.team.split('.');
-    state[color].teams[Number(i)] = t.value;
-    renderRankings();                            // cheap: avoid a full re-render while typing
-  }
-  if (t.id === 'matchLabel') state.label = t.value;
+  if (e.target.id === 'matchLabel') state.label = e.target.value;
 });
 
 /* ============================================================
    VIEWS
    ============================================================ */
 function switchView(v) {
-  state.view = v;
-  document.querySelectorAll('.tab').forEach(b => b.classList.toggle('active', b.dataset.view === v));
-  document.querySelectorAll('.view').forEach(s => s.classList.toggle('active', s.id === 'view-' + v));
+  document.querySelectorAll('.tab').forEach(b => b.classList.toggle('is-active', b.dataset.view === v));
+  document.querySelectorAll('.view').forEach(s => s.classList.toggle('is-active', s.id === 'view-' + v));
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
 /* ============================================================
-   MATCH SAVE / LOAD
+   SAVE / LOAD
    ============================================================ */
 const snapshot = () => JSON.parse(JSON.stringify({
   label: state.label || `M${state.history.length + 1}`,
@@ -541,7 +454,7 @@ function saveMatch() {
   saveHistory();
   state.label = '';
   $('#matchLabel').value = '';
-  clearScores(true);
+  clearScores();
   switchView('history');
 }
 function loadMatch(i) {
@@ -555,12 +468,10 @@ function loadMatch(i) {
   switchView('match');
   render();
 }
-function clearScores(keepTeams) {
-  const t = { red: [...state.red.teams], blue: [...state.blue.teams] };
+function clearScores() {
   state.red = blankAlliance();
   state.blue = blankAlliance();
   state.flowers = blankFlowers();
-  if (keepTeams) { state.red.teams = t.red; state.blue.teams = t.blue; }
   render();
 }
 
@@ -573,30 +484,34 @@ function fmt(sec) {
 }
 function phaseInfo() {
   const T = state.timer;
-  if (T.phase === 'pre') return ['PRE-MATCH', ''];
-  if (T.phase === 'auto') return ['AUTONOMOUS', 'auto'];
-  if (T.phase === 'transition') return ['TRANSITION — PICK UP CONTROLLERS', 'transition'];
-  if (T.phase === 'post') return ['MATCH OVER', 'post'];
-  if (T.t <= T_FINAL) return ['FINAL 20 SECONDS', 'final'];
-  if (T.t <= T_FLOWER) return ['TELEOP — FLOWERS UNLOCKED', 'unlocked'];
-  return ['TELEOP', 'teleop'];
+  if (T.phase === 'pre') return ['Pre-match', ''];
+  if (T.phase === 'auto') return ['Autonomous', 'auto'];
+  if (T.phase === 'transition') return ['Transition — pick up controllers', 'transition'];
+  if (T.phase === 'post') return ['Match over', 'post'];
+  if (T.t <= T_FINAL) return ['Final 20 seconds', 'final'];
+  if (T.t <= T_FLOWER) return ['Teleop — flowers unlocked', 'unlocked'];
+  return ['Teleop', 'teleop'];
 }
 function paintTimer() {
   const T = state.timer;
-  const [txt, cls] = phaseInfo();
+  const [txt, st] = phaseInfo();
   const pill = $('#phasePill');
   pill.textContent = txt;
-  pill.className = 'phase-pill ' + cls;
-  $('#clock').textContent = T.phase === 'transition' ? fmt(T.transitionLeft) : fmt(T.t);
-  $('#clock').classList.toggle('warn', T.phase === 'teleop' && T.t <= T_FINAL);
-  $('#btnStart').textContent = T.running ? 'Pause' : (T.phase === 'pre' ? 'Start' : 'Resume');
-  $('#btnStart').classList.toggle('running', T.running);
+  pill.dataset.state = st;
+
+  const clock = $('#clock');
+  clock.textContent = T.phase === 'transition' ? fmt(T.transitionLeft) : fmt(T.t);
+  clock.dataset.warn = (T.phase === 'teleop' && T.t <= T_FINAL) ? '1' : '0';
+
+  const btn = $('#btnStart');
+  btn.textContent = T.running ? 'Pause' : (T.phase === 'pre' ? 'Start' : 'Resume');
+  btn.dataset.running = T.running ? '1' : '0';
 
   const unlocked = T.phase === 'teleop' && T.t <= T_FLOWER;
   const hint = $('#flowerHint');
-  if (T.phase === 'post') { hint.textContent = 'Final assessment'; hint.className = 'hint'; }
-  else if (unlocked) { hint.textContent = '● UNLOCKED'; hint.className = 'hint live'; }
-  else { hint.textContent = 'Locked until 1:00'; hint.className = 'hint'; }
+  if (T.phase === 'post') { hint.textContent = 'Final assessment'; hint.dataset.live = '0'; }
+  else if (unlocked) { hint.textContent = 'Unlocked'; hint.dataset.live = '1'; }
+  else { hint.textContent = 'Locked until 1:00'; hint.dataset.live = '0'; }
 }
 
 let lastTick = 0, rafId = null;
@@ -639,7 +554,7 @@ function resetTimer() {
   paintTimer();
 }
 
-/* short WebAudio cues — no assets, and silently a no-op if audio is unavailable */
+/* short WebAudio cues — no assets; a no-op where audio is blocked */
 let actx = null;
 function beep(times, freq, dur = 0.14) {
   if (!state.sound) return;
@@ -649,14 +564,15 @@ function beep(times, freq, dur = 0.14) {
     for (let i = 0; i < times; i++) {
       const t0 = actx.currentTime + i * (dur + 0.07);
       const osc = actx.createOscillator(), g = actx.createGain();
-      osc.type = 'square'; osc.frequency.value = freq;
+      osc.type = 'square';
+      osc.frequency.value = freq;
       g.gain.setValueAtTime(0.0001, t0);
       g.gain.exponentialRampToValueAtTime(0.16, t0 + 0.012);
       g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
       osc.connect(g).connect(actx.destination);
       osc.start(t0); osc.stop(t0 + dur + 0.02);
     }
-  } catch (e) { /* audio blocked — scoring is unaffected */ }
+  } catch (e) { /* audio unavailable — scoring is unaffected */ }
 }
 
 /* ============================================================
@@ -666,19 +582,11 @@ $('#btnStart').addEventListener('click', startTimer);
 $('#btnReset').addEventListener('click', resetTimer);
 $('#btnSave').addEventListener('click', saveMatch);
 $('#btnClear').addEventListener('click', () => {
-  if (confirm('Clear all scores for the current match? Team numbers are kept.')) clearScores(true);
+  if (confirm('Clear all scores for the current match?')) clearScores();
 });
 $('#btnSound').addEventListener('click', e => {
   state.sound = !state.sound;
   e.currentTarget.setAttribute('aria-pressed', String(state.sound));
-  saveConfig();
-});
-$('#btnTheme').addEventListener('click', () => {
-  const d = document.documentElement;
-  // With no explicit choice stamped, fall back to what the OS is actually showing.
-  const current = d.dataset.theme ||
-    (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
-  d.dataset.theme = current === 'dark' ? 'light' : 'dark';
   saveConfig();
 });
 $('#btnExport').addEventListener('click', async () => {
@@ -687,13 +595,12 @@ $('#btnExport').addEventListener('click', async () => {
   const filename = `biobuzz-matches-${new Date().toISOString().slice(0, 10)}.json`;
 
   // Inside the Claude artifact viewer a plain download link is inert, so route
-  // through the host's save flow when it is there and fall back everywhere else.
+  // through the host's save flow when it exists and fall back everywhere else.
   try {
     const downloads = await window.claude?.use?.('downloads');
     if (downloads) { await downloads.save({ filename, data: json }); return; }
   } catch (err) {
     if (err && (err.code === 'declined' || err.code === 'rate_limited')) return;
-    // any other failure: fall through to the ordinary download
   }
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob([json], { type: 'application/json' }));
@@ -702,12 +609,11 @@ $('#btnExport').addEventListener('click', async () => {
   setTimeout(() => URL.revokeObjectURL(a.href), 2000);
 });
 
-/* keyboard shortcuts for a scorekeeper at a laptop */
 document.addEventListener('keydown', e => {
   if (e.target.matches('input, textarea')) return;
   if (e.code === 'Space') { e.preventDefault(); startTimer(); }
   else if (e.key === 'r' || e.key === 'R') resetTimer();
-  else if (e.key >= '1' && e.key <= '5') switchView(['match', 'breakdown', 'history', 'rankings', 'rules'][+e.key - 1]);
+  else if (e.key >= '1' && e.key <= String(VIEWS.length)) switchView(VIEWS[+e.key - 1]);
 });
 
 loadStore();
