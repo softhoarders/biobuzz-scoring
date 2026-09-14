@@ -3,6 +3,8 @@
 An unofficial match score calculator for the *FIRST* Tech Challenge **BIOBUZZ** season,
 built from the [BIOBUZZ Competition Manual V1](https://ftc-resources.firstinspires.org/ftc/game/cm-html/BIOBUZZ%20Competition%20Manual%20-%20V1.htm).
 
+**Live: <https://biobuzz-scoring.netlify.app>**
+
 **No backend.** Three static files, no build step, no dependencies. All state lives in the
 browser (`localStorage`); nothing is uploaded anywhere.
 
@@ -58,9 +60,14 @@ from disk. It is generated, so it is not checked in.
 
 ## Deploying
 
-Any static host works — the repo root is the site root. On Vercel there is nothing to
-configure: no framework, no build command, no output directory. For GitHub Pages, point
-Pages at this branch with the folder set to `/ (root)`; `.nojekyll` keeps Jekyll out of it.
+Any static host works — the repo root is the site root, with no framework, build command
+or output directory to configure.
+
+- **Netlify** — currently live at <https://biobuzz-scoring.netlify.app>, deployed from the
+  repo root.
+- **GitHub Pages** — Settings → Pages → Deploy from a branch → `/ (root)`. `.nojekyll` is
+  committed so Jekyll leaves the files alone.
+- **Vercel** — `vercel.json` is present; nothing else to set up.
 
 ## Disclaimer
 
