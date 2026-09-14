@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>BIOBUZZ Scorer — FTC 2026-27 Match Score Calculator</title>
+<meta name="description" content="Unofficial FIRST Tech Challenge BIOBUZZ match score calculator: live match timer, FLOWER ownership, ranking points and match history.">
+<meta name="theme-color" content="#0c100e">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230c100e'/%3E%3Cpath d='M9 20.5 14 11l4 7 2-3.2 3 5.7z' fill='%233ddc84'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<div class="app">
+
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true"></span>
+      <span class="brand-text">
+        <b>BIOBUZZ Scorer</b>
+        <i>FTC 2026&ndash;27</i>
+      </span>
+    </div>
+
+    <div class="timer">
+      <span class="phase" id="phasePill">Pre-match</span>
+      <span class="clock" id="clock">2:30</span>
+      <button class="btn btn-accent" id="btnStart">Start</button>
+      <button class="btn" id="btnReset">Reset</button>
+      <button class="btn btn-icon" id="btnSound" aria-pressed="true" title="Sound cues" aria-label="Toggle sound cues">
+        <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><path fill="currentColor" d="M7 2.5 4 5H2v6h2l3 2.5v-11Z"/><path fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" d="M10.2 5.4a3.4 3.4 0 0 1 0 5.2M12.4 3.4a6.3 6.3 0 0 1 0 9.2"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <nav class="tabs" role="tablist">
+    <button class="tab is-active" id="tab-match" data-view="match" role="tab" aria-selected="true" aria-controls="view-match">Match</button>
+    <button class="tab" id="tab-breakdown" data-view="breakdown" role="tab" aria-selected="false" aria-controls="view-breakdown">Breakdown</button>
+    <button class="tab" id="tab-history" data-view="history" role="tab" aria-selected="false" aria-controls="view-history">History</button>
+    <button class="tab" id="tab-rules" data-view="rules" role="tab" aria-selected="false" aria-controls="view-rules">Rules</button>
+  </nav>
+
+  <div class="scoreline">
+    <div class="sl-side sl-red">
+      <span class="sl-tag">Red</span>
+      <span class="sl-score" id="redTotal">0</span>
+      <span class="sl-rp" id="redRP">0 RP</span>
+    </div>
+    <div class="sl-mid">
+      <span class="sl-result" id="resultPill">Tie</span>
+      <span class="sl-margin" id="margin">&mdash;</span>
+    </div>
+    <div class="sl-side sl-blue">
+      <span class="sl-tag">Blue</span>
+      <span class="sl-score" id="blueTotal">0</span>
+      <span class="sl-rp" id="blueRP">0 RP</span>
+    </div>
+  </div>
+
+  <div id="alerts" class="alerts"></div>
+
+  <!-- ========== MATCH ========== -->
+  <main class="view is-active" id="view-match" role="tabpanel" tabindex="0" aria-labelledby="tab-match">
+    <div class="grid">
+      <section class="col col-red" id="redPanel"></section>
+
+      <section class="col col-field">
+        <div class="card">
+          <div class="card-head">
+            <h2>Flowers</h2>
+            <span class="meta" id="flowerHint">Locked until 1:00</span>
+          </div>
+          <p class="note">
+            The alliance holding the <b>top-most NECTAR of its colour</b> owns a FLOWER and scores
+            <b>2 pts</b> for every element in it. The <b>bottom-most NECTAR</b> of a colour earns
+            that alliance <b>5 pts</b>.
+          </p>
+          <div id="flowerList" class="flowers"></div>
+        </div>
+
+        <div class="card">
+          <div class="card-head"><h2>Field check</h2></div>
+          <div id="fieldCheck"></div>
+        </div>
+      </section>
+
+      <section class="col col-blue" id="bluePanel"></section>
+    </div>
+
+    <div class="actions">
+      <input type="text" id="matchLabel" class="input" placeholder="Match label (e.g. Q17)" maxlength="24" aria-label="Match label">
+      <button class="btn btn-accent" id="btnSave">Save match</button>
+      <button class="btn btn-quiet" id="btnClear">Clear scores</button>
+    </div>
+  </main>
+
+  <!-- ========== BREAKDOWN ========== -->
+  <section class="view" id="view-breakdown" role="tabpanel" tabindex="0" aria-labelledby="tab-breakdown">
+    <div id="breakdown"></div>
+  </section>
+
+  <!-- ========== HISTORY ========== -->
+  <section class="view" id="view-history" role="tabpanel" tabindex="0" aria-labelledby="tab-history">
+    <div class="card">
+      <div class="card-head">
+        <h2>Saved matches</h2>
+        <button class="btn btn-sm" id="btnExport">Export JSON</button>
+      </div>
+      <div id="historyList"></div>
+    </div>
+  </section>
+
+  <!-- ========== RULES ========== -->
+  <section class="view" id="view-rules" role="tabpanel" tabindex="0" aria-labelledby="tab-rules">
+    <div class="card">
+      <div class="card-head"><h2>Point values &mdash; Table 10&#8209;2</h2></div>
+      <div class="scroll-x">
+        <table class="table">
+          <thead><tr><th>Achievement</th><th class="n">Auto</th><th class="n">Teleop</th></tr></thead>
+          <tbody>
+            <tr><td>LEAVE <span class="sub">no longer contacting the perimeter wall</span></td><td class="n">3</td><td class="n">&mdash;</td></tr>
+            <tr><td>PARK <span class="sub">at least partially in the LOADING ZONE</span></td><td class="n">5</td><td class="n">5</td></tr>
+            <tr><td>HIVE TIP</td><td class="n">20</td><td class="n">20</td></tr>
+            <tr><td>POLLEN / NECTAR remaining in CELL</td><td class="n">&mdash;</td><td class="n">2</td></tr>
+            <tr><td>Bottom NECTAR Bonus</td><td class="n">&mdash;</td><td class="n">5</td></tr>
+            <tr><td>POLLEN / NECTAR in an owned FLOWER</td><td class="n">&mdash;</td><td class="n">2</td></tr>
+            <tr><td>POLLEN / NECTAR in GARDEN</td><td class="n">&mdash;</td><td class="n">1</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head"><h2>Ranking points</h2></div>
+      <div class="settings" id="thresholdSettings"></div>
+      <p class="note">
+        Defaults are the <b>All Other Events</b> column of Table&nbsp;10&#8209;3. Regional Championship and
+        <i>FIRST</i> Championship thresholds are <b>TBA</b> in Team Updates; Premier Events set their own.
+      </p>
+      <div class="scroll-x">
+        <table class="table">
+          <thead><tr><th>Ranking point</th><th>Earned when</th><th class="n">RP</th></tr></thead>
+          <tbody>
+            <tr><td>SWARM</td><td>Combined LEAVE + PARK points at or above threshold</td><td class="n">1</td></tr>
+            <tr><td>POLLINATOR 1</td><td>Number of TIPS at or above threshold</td><td class="n">1</td></tr>
+            <tr><td>POLLINATOR 2</td><td>Number of TIPS at or above threshold</td><td class="n">1</td></tr>
+            <tr><td>Win</td><td>More MATCH points than your opponent</td><td class="n">3</td></tr>
+            <tr><td>Tie</td><td>Same MATCH points as your opponent</td><td class="n">1</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head"><h2>Fouls &amp; timing</h2></div>
+      <div class="scroll-x">
+        <table class="table">
+          <thead><tr><th>Item</th><th>Effect</th></tr></thead>
+          <tbody>
+            <tr><td>MINOR FOUL</td><td>5 points credited to the <b>opponent&rsquo;s</b> MATCH total</td></tr>
+            <tr><td>MAJOR FOUL</td><td>20 points credited to the <b>opponent&rsquo;s</b> MATCH total</td></tr>
+            <tr><td>Disqualified</td><td>0 MATCH points and 0 RANKING POINTS in a Qualification MATCH</td></tr>
+            <tr><td>Autonomous</td><td>0:30 &mdash; clock runs 2:30 &rarr; 2:00</td></tr>
+            <tr><td>Transition</td><td>8 seconds &mdash; drivers pick up controllers</td></tr>
+            <tr><td>Teleop</td><td>2:00 &mdash; clock runs 2:00 &rarr; 0:00</td></tr>
+            <tr><td>FLOWER scoring unlocked</td><td>1:00 remaining (G410 &mdash; MAJOR FOUL per early NECTAR)</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="note">
+        Field: 4 FLOWERS &middot; one HIVE structure (a red and a blue HIVE, two CELLS each) &middot;
+        2 GARDENS &middot; 40 POLLEN, 8 red NECTAR, 8 blue NECTAR.
+      </p>
+    </div>
+
+    <div class="card">
+      <p class="note note-plain">
+        <b>Unofficial tool.</b> Built from the <i>BIOBUZZ Competition Manual V1</i>. The Head REFEREE and
+        the official <i>FIRST</i> scoring system are always authoritative. Check Team Updates before
+        relying on this at an event.
+      </p>
+    </div>
+  </section>
+
+  <footer class="foot">Unofficial BIOBUZZ score calculator &middot; rules per Competition Manual V1</footer>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
